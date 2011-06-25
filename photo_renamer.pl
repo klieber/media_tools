@@ -10,7 +10,9 @@ my %opts = ();
 getopts("md:e:",\%opts) or &usage;
 &usage unless ($opts{d} && -d $opts{d}); 
 
-my $home = glob("~");
+my $HOME = glob("~");
+my $TARGET_DIR = "$HOME/Pictures/Family";
+my $INVALID_DIR = "$HOME/Pictures/invalid";
 
 my @DATE_FIELDS = (
   "exif:DateTimeOriginal",
@@ -49,16 +51,15 @@ sub wanted {
       }
     }
     if ($t) {
-      my $outpath = "$home/Pictures/Family/".$t->strftime("%Y/%m");
+      my $outpath = "$TARGET_DIR/".$t->strftime("%Y/%m");
       my $outfile = $t->strftime("%Y%m%d_%H%M%S.jpg");
       print "copying $File::Find::name to $outpath/$outfile\n";
       system("mkdir -p $outpath");
       system("cp -p \"$File::Find::name\" \"$outpath/$outfile\"");
     }
     else {
-      my $outpath = "$home/Pictures/invalid";
-      system("mkdir -p $outpath");
-      system("cp -p \"$File::Find::name\" \"$outpath/$_\"");
+      system("mkdir -p $INVALID_DIR");
+      system("cp -p \"$File::Find::name\" \"$INVALID_DIR/$_\"");
       print "unable to convert file name: $File::Find::name\n";
     }
   }

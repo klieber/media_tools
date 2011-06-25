@@ -8,6 +8,9 @@ use File::stat;
 use File::Spec;
 use Time::Piece;
 
+my $HOME_DIR  = glob("~");
+my $TARGET_DIR = "$HOME_DIR/Videos/Family";
+
 my %opts;
 getopts("f:o",\%opts) or &usage;
 
@@ -28,7 +31,7 @@ if ($infile =~ m/^\/?(?:[^\/]*\/)*(\d{8}_\d{6})(?:\.[^\/]*)*$/) {
   } 
 }
 $t = localtime(stat($opts{f})->mtime) unless $t;
-my $outpath = glob("~")."/Videos/Family/".$t->strftime("%Y/%m");
+my $outpath = "$TARGET_DIR/".$t->strftime("%Y/%m");
 my $outfile = $t->strftime("%Y%m%d_%H%M%S.avi");
 my $workdir = "/tmp/modconverter";
 

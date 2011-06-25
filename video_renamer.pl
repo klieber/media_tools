@@ -10,7 +10,9 @@ my %opts = ();
 getopts("md:e:",\%opts) or &usage;
 &usage unless ($opts{d} && -d $opts{d}); 
 
-my $home = glob("~");
+my $HOME = glob("~");
+my $TARGET_DIR = "$HOME/Videos/Family";
+my $INVALID_DIR = "$HOME/Videos/invalid";
 
 my @DATE_FIELDS = (
   "Media Create Date",
@@ -52,7 +54,7 @@ sub wanted {
       }
     }
     if ($t) {
-      my $outpath = "$home/Videos/Family/".$t->strftime("%Y/%m");
+      my $outpath = "$TARGET_DIR/".$t->strftime("%Y/%m");
       my $outfile = $t->strftime("%Y%m%d_%H%M%S.3gp");
       print "copying $File::Find::name to $outpath/$outfile\n";
       system("mkdir -p $outpath");
@@ -61,9 +63,8 @@ sub wanted {
       system("touch -d \"$cdate\" \"$outpath/$outfile\"");
     }
     else {
-      my $outpath = "$home/Videos/invalid";
-      system("mkdir -p $outpath");
-      system("cp -p \"$File::Find::name\" \"$outpath/$_\"");
+      system("mkdir -p $INVALID_DIR");
+      system("cp -p \"$File::Find::name\" \"$INVALID_DIR/$_\"");
       print "unable to convert file name: $File::Find::name\n";
     }
   }
