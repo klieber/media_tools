@@ -9,8 +9,8 @@ my $MOUNT_DIR = "/media/EVERIO_HDD/SD_VIDEO";
 my $HOME_DIR  = glob("~");
 my $LOCAL_DIR = "$HOME_DIR/Videos/Family";
 my $REMOTE_USER   = "klieber";
-my $REMOTE_SERVER = "kyle-desktop";
-my $REMOTE_DIR    = "/var/shared/media/video";
+my $REMOTE_SERVER = "lieber-server";
+my $REMOTE_DIR    = "/srv/media/video/family";
 my $MODCONVERTER  = "$HOME_DIR/bin/modconverter.pl";
 
 my $count =  `ps -ef | grep -v grep | grep perl | grep -c $0`;
@@ -20,7 +20,7 @@ if (-d $MOUNT_DIR && $count <= 1 && $connected) {
   File::Find::find({wanted => \&wanted}, $MOUNT_DIR);
   
   print "syncing with $REMOTE_SERVER...\n";
-  system("rsync -a -vv -e ssh $LOCAL_DIR $REMOTE_USER\@$REMOTE_SERVER:$REMOTE_DIR");
+  system("rsync -a -vv -e ssh $LOCAL_DIR/* $REMOTE_USER\@$REMOTE_SERVER:$REMOTE_DIR");
 }
 
 sub wanted {
