@@ -2,6 +2,8 @@
 
 use File::Find;
 use File::Spec;
+use File::Path qw(mkpath);
+use File::Copy;
 use Digest::MD5 qw(md5_hex);
 use Time::Piece;
 use Getopt::Std;
@@ -14,8 +16,8 @@ my %checksums = ();
 
 File::Find::find({wanted => \&wanted}, $opts{d});
 
-my $backup = "/tmp/backup/";
-system("mkdir -p $backup");
+my $backup = &get_temp_directory;
+mkpath $backup;
 
 for my $sum (keys %checksums) {
   my @files = sort @{$checksums{$sum}};
@@ -24,8 +26,12 @@ for my $sum (keys %checksums) {
     print "duplicate files with checksum: $sum\n";
     print "  preserving file: $preserve\n";
     for my $file (sort @files) {
-      print "  deleting duplicate: $file\n";
-      system("mv $file $backup") if $opts{m};
+      if ($opts{m}) {
+        print "  moving duplicate to $backup: $file\n";
+        move($file,$backup) if $opts{m};
+      } else {
+        print "  not touching duplicate without -m option: $file\n";
+      }
     }
   }
 }
@@ -46,4 +52,13 @@ sub wanted {
 sub usage {
   print "$0 [-m] [-d <dir>] [-e <extension>]\n";
   exit -1;
+}
+
+sub get_temp_directory {
+  my $os = $^O;
+  my $tmp = "/tmp/dup_backup";
+  if ($os =~ m/mswin32/i) {
+    $tmp = 'C:\Temp\dup_backup'; 
+  }
+  return $tmp;
 }
