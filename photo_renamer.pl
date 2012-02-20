@@ -14,6 +14,7 @@ my %opts = ();
 getopts("sbcmd:",\%opts) or &usage;
 &usage unless ($opts{d} && -d $opts{d}); 
 
+# not cross-platform 
 my $count =  `ps -ef | grep -v grep | grep perl | grep -c $0`;
 die "$0 is already running\n" if $count > 1;
 
@@ -81,16 +82,18 @@ sub wanted {
         }
         if ($has_duplicate) {
           mkpath "/tmp/photo_duplicates";
-          system("mv \"$File::Find::name\" /tmp/photo_duplicates");
+          move($File::Find::name,"/tmp/photo_duplicates");
         } else {
           mkpath $outpath;
           if ($opts{c}) {
             print "copying $File::Find::name to $outpath/$outfile\n";
-            system("cp -p \"$File::Find::name\" \"$outpath/$outfile\"");
+            copy($File::Find::name,"$outpath/$outfile");
+            # not cross-platform
             system("chmod a-x \"$outpath/$outfile\"");
           } elsif ($opts{m}) {
             print "moving $File::Find::name to $outpath/$outfile\n";
-            system("mv \"$File::Find::name\" \"$outpath/$outfile\"");
+            move($File::Find::name,"$outpath/$outfile");
+            # not cross-platform
             system("chmod a-x \"$outpath/$outfile\"");
           }
         }
@@ -98,7 +101,8 @@ sub wanted {
     } elsif ($opts{b}) {
       my $outpath = "$root_outpath/invalid";
       mkpath $outpath;
-      system("cp -p \"$File::Find::name\" \"$outpath/$_\"");
+      copy($File::Find::name,"$outpath/$_");
+      # not cross-platform
       system("chmod a-x \"$outpath/$_\"");
       print "unable to convert file name: $File::Find::name\n";
     } else {
