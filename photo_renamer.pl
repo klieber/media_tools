@@ -46,6 +46,7 @@ sub wanted {
     $ext =~ s/jpeg/jpg/i;
     $ext = lc $ext;
     print "scanning file $File::Find::name\n";
+    my $date = &get_date($File::Find::name);
     my $t;
     eval{ $t = Time::Piece->strptime($date,"%Y:%m:%d%t%H:%M:%S"); };
     if ($@) {
@@ -88,11 +89,13 @@ sub wanted {
           if ($opts{c}) {
             print "copying $File::Find::name to $outpath/$outfile\n";
             copy($File::Find::name,"$outpath/$outfile");
+            &fix_timestamp($t, "$outpath/$outfile");
             # not cross-platform
             system("chmod a-x \"$outpath/$outfile\"");
           } elsif ($opts{m}) {
             print "moving $File::Find::name to $outpath/$outfile\n";
             move($File::Find::name,"$outpath/$outfile");
+            &fix_timestamp($t, "$outpath/$outfile");
             # not cross-platform
             system("chmod a-x \"$outpath/$outfile\"");
           }
@@ -102,6 +105,7 @@ sub wanted {
       my $outpath = "$root_outpath/invalid";
       mkpath $outpath;
       copy($File::Find::name,"$outpath/$_");
+      &fix_timestamp($t, "$outpath/$_");
       # not cross-platform
       system("chmod a-x \"$outpath/$_\"");
       print "unable to convert file name: $File::Find::name\n";
@@ -138,10 +142,11 @@ sub is_duplicate {
 
 sub get_date {
   my $file = shift;
+  print "$file\n";
   my $info = $exif->ImageInfo($file);
-  my %available_dates = ();
+  my %dates = ();
   for my $key (grep {/date/i} keys %{$info}) {
-    $available_dates{$key} = $info->{$key};
+    $dates{$key} = $info->{$key};
   }
   my $selected_date;
   for my $key (@DATE_FIELDS) {
@@ -153,11 +158,22 @@ sub get_date {
     my @fields = keys %dates;
     $selected_date = shift @fields;
   }
-  return $info->{$selected_date};
+  return $dates{$selected_date};
 }
 
+sub fix_timestamp {
+  my $t    = shift;
+  my $file = shift;
+  my $seconds = $t->epoch + $t->offset;
+  utime $seconds, $seconds, $file;
+}
 
 sub usage {
-  print "$0 [-m] [-d <dir>] [-e <extension>]\n";
+  print "$0 [-s] [-c] [-m] [-b] [-d <dir>]\n";
+  print "  -s       : skip existing files\n";
+  print "  -c       : copy the file\n";
+  print "  -m       : move the file\n";
+  print "  -b       : backup invalid files\n";
+  print "  -d <dir> : directory to scan\n";
   exit -1;
 }
