@@ -137,6 +137,8 @@ sub is_duplicate {
   binmode(FILE2);
   my $cs1 = md5_hex(<FILE1>);
   my $cs2 = md5_hex(<FILE2>);
+  close(FILE1);
+  close(FILE2);
   return $cs1 eq $cs2; 
 }
 
