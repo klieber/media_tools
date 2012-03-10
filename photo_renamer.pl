@@ -2,42 +2,39 @@
 
 use File::Find;
 use File::Spec;
-use File::Path qw(mkpath);
-use File::Copy;
 use Digest::MD5 qw(md5_hex);
 use Time::Piece;
 use Getopt::Std;
 use File::Glob ':glob';
-use Image::ExifTool;
 
 my %opts = ();
 getopts("sbcmd:",\%opts) or &usage;
-&usage unless ($opts{d} && -d $opts{d}); 
 
 my $count =  `ps -ef | grep -v grep | grep perl | grep -c $0`;
 die "$0 is already running\n" if $count > 1;
-
-&check_for_changes($opts{d});
 
 my $home = glob("~");
 my $root_outpath = "/srv/media/photos";
 #my $root_outpath = "$home/Pictures/Family";
 
-my $exif = new Image::ExifTool;
-
 my @DATE_FIELDS = (
-  "DateTimeOriginal",
-  "CreateDate",
-  "ModifyDate",
-  "ModifyDate (1)",
-  "FileModifyDate",
-  "GPSDateStamp",
-  "GPSDateTime",
-  "ProfileDateTime",
-  "SonyDateTime"
+  "exif:DateTimeOriginal",
+  "exif:DateTimeDigitized",
+  "exif:DateTime",
+  "MicrosoftPhoto:DateAcquired",
+  "date:modify",
+  "date:create"
 );
+my @dirs = split(/,/,$opts{d});
 
-File::Find::find({wanted => \&wanted}, $opts{d});
+for my $dir (@dirs) {
+  &usage("invalid directory: $dir") unless ($dir && -d $dir); 
+  &check_for_changes($dir);
+}
+
+for my $dir (@dirs) {
+  File::Find::find({wanted => \&wanted}, $dir);
+}
 
 sub wanted {
   if (/^.*\.((?:jpe?g)|(?:png))$/i) {
@@ -45,11 +42,37 @@ sub wanted {
     $ext =~ s/jpeg/jpg/i;
     $ext = lc $ext;
     print "scanning file $File::Find::name\n";
+    chomp(my @lines = `/usr/bin/identify -verbose \"$File::Find::name\" | grep -i date`);
+    my %metadata = ();
+    for my $line (@lines) {
+      if ($line =~ m/^\s*([^\s]*):\s+(.*)$/) {
+        my $key = $1;
+        my $val = $2;
+        #$val =~ s/-\d\d:\d\d$//;
+        $val =~ s/Z$//;
+        $val =~ s/-(\d\d):(\d\d)$/-$1$2/;
+        $val =~ s/\+(\d\d):(\d\d)$/+$1$2/;
+        $val =~ s/^(\d\d\d\d):(\d\d):(\d\d)\s+/$1-$2-$3T/;
+#        if ($val !~ m/2005-01-01T00:00:0/) {
+          $metadata{$key} = $val;
+#        }
+      }
+    }
     my $t;
-    eval{ $t = Time::Piece->strptime($date,"%Y:%m:%d%t%H:%M:%S"); };
-    if ($@) {
-      eval{ $t = Time::Piece->strptime($date,"%Y-%m-%dT%H:%M:%S%z"); };
-      print STDERR "invalid date, $date\n" if $@;
+    for my $key (@DATE_FIELDS) {
+      print "$key = $metadata{$key}\n";
+      if ($metadata{$key}) {
+        #if ($key =~ m/^exif/) {
+        #  eval{ $t = Time::Piece->strptime($metadata{$key},"%Y:%m:%d%t%H:%M:%S"); };
+        #  print STDERR "invalid date, $key=$metadata{$key}\n" if $@;
+        #} else { 
+          eval{ $t = Time::Piece->strptime($metadata{$key},"%Y-%m-%dT%H:%M:%S%z"); };
+          if (!$t) {
+            eval{ $t = Time::Piece->strptime($metadata{$key},"%Y-%m-%dT%H:%M:%S"); };     }
+          print STDERR "invalid date, $key=$metadata{$key}\n" if $@;
+        #}
+        last if ($t);
+      }
     }
     if ($t) {
       my $outpath = "$root_outpath/".$t->strftime("%Y/%m");
@@ -79,29 +102,32 @@ sub wanted {
             }
           }
         }
-        if ($has_duplicate) {
-          mkpath "/tmp/photo_duplicates";
+        if ($has_duplicate && $opts{m}) {
+          system("mkdir -p /tmp/photo_duplicates");
           system("mv \"$File::Find::name\" /tmp/photo_duplicates");
-        } else {
-          mkpath $outpath;
+        } elsif (!$has_duplicate) {
+          system("mkdir -p $outpath");
           if ($opts{c}) {
             print "copying $File::Find::name to $outpath/$outfile\n";
             system("cp -p \"$File::Find::name\" \"$outpath/$outfile\"");
             system("chmod a-x \"$outpath/$outfile\"");
+            system("chgrp sambashare \"$outpath/$outfile\"");
           } elsif ($opts{m}) {
             print "moving $File::Find::name to $outpath/$outfile\n";
             system("mv \"$File::Find::name\" \"$outpath/$outfile\"");
             system("chmod a-x \"$outpath/$outfile\"");
+            system("chgrp sambashare \"$outpath/$outfile\"");
           }
         }
       }
     } elsif ($opts{b}) {
       my $outpath = "$root_outpath/invalid";
-      mkpath $outpath;
+      system("mkdir -p $outpath");
       system("cp -p \"$File::Find::name\" \"$outpath/$_\"");
       system("chmod a-x \"$outpath/$_\"");
       print "unable to convert file name: $File::Find::name\n";
-    } else {
+    }
+    else {
       print "unable to convert file name: $File::Find::name\n";
     }
   }
@@ -132,28 +158,9 @@ sub is_duplicate {
   return $cs1 eq $cs2; 
 }
 
-sub get_date {
-  my $file = shift;
-  my $info = $exif->ImageInfo($file);
-  my %available_dates = ();
-  for my $key (grep {/date/i} keys %{$info}) {
-    $available_dates{$key} = $info->{$key};
-  }
-  my $selected_date;
-  for my $key (@DATE_FIELDS) {
-    if (!$selected_date && $dates{$key}) {
-      $selected_date = $key;
-    }
-  }
-  if (!$selected_date) {
-    my @fields = keys %dates;
-    $selected_date = shift @fields;
-  }
-  return $info->{$selected_date};
-}
-
-
 sub usage {
+  my $msg = shift;
+  print "$msg\n" if $msg;
   print "$0 [-m] [-d <dir>] [-e <extension>]\n";
   exit -1;
 }
