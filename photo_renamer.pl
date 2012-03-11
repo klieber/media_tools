@@ -137,7 +137,7 @@ sub check_for_changes {
   my $directory = shift;
   my @files = bsd_glob("$directory/*");
   my $first = scalar(@files);
-  sleep 5;
+  sleep 15;
   @files = bsd_glob("$directory/*");
   my $second = scalar(@files);
   if ($first < $second) {
