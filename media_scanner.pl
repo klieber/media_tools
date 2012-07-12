@@ -17,19 +17,21 @@ my %scanners = (
   "3gp" => \&scan_3gp
 );
 
+my $WORKDIR = "/tmp/media_scanner";
+
 my %opts = ();
-getopts("md:",\%opts) || &usage;
+getopts("md:o",\%opts) || &usage;
 &usage unless $opts{d};
 
 my $HOME_DIR  = glob("~");
-my $CONVERTER  = "$HOME_DIR/bin/3gpconverter.pl";
-$CONVERTER .= " -m" if $opts{m};
 
 my $OUTPUT_ROOT = "/srv/media/video/family";
 
 &check_already_running;
 
 &check_directories;
+
+&create_workdir;
 
 sub wanted {
   if (!-d $File::Find::name && /\.([^.])$/) {
@@ -38,19 +40,39 @@ sub wanted {
   }
 }
 
+sub create_workdir {
+  my $rc = system("mkdir -p $WORKDIR");
+  die "unable to make work directory $WORKDIR: $?\n" unless $rc == 0;
+}
+
 sub scan_3gp {
   my $filename = shift;
   my $t = &get_datetime($filename);
   my ($outpath,$outfile) = &get_outpath($t,"avi");
-  if (! -e "$outpath/$outfile") {
+  if ($opts{o} || ! -e "$outpath/$outfile") {
     print "new: $outpath/$outfile\n";
-    system("$CONVERTER -f \"$filename\"");
+    &convert_3gp($filename,"$WORKDIR/$outfile");
+    print "moving $WORKDIR/$outfile to $outpath/$outfile\n";
+    my $rc = system("mkdir -p $outpath");
+    die "unable to make output path $outpath: $?\n" unless $rc == 0;
+    $rc = system("mv \"$WORKDIR/$outfile\" $outpath/$outfile");
+    die "unable to move $WORKDIR/$outfile to $outpath/$outfile: $?\n" unless $rc == 0;
+    $rc = system("touch -d \"$cdate\" $outpath/$outfile");
+    die "unable to update creation time on $outpath/$outfile: $?\n" unless $rc == 0;
   } elsif ($opts{m}) {
     print "removing $filename due to existing file: $outpath/$outfile\n";
     system("rm \"$filename\""); 
   } else {
     print "skipping existing file: $outpath/$outfile\n";
   }
+}
+
+sub convert_3gp {
+  my $original  = shift;
+  my $converted = shift;
+  print "converting $original to $converted\n";
+  $rc = system("ffmpeg -i \"$original\" -b 9000K -r 30 -ab 128K -f avi -vcodec libxvid -acodec libmp3lame \"$converted\"");
+  die "unable to convert $original: $?\n" unless $rc == 0;
 }
 
 sub check_already_running {
