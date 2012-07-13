@@ -6,6 +6,7 @@ use File::stat;
 use File::Spec;
 use Getopt::Std;
 use File::Glob ':glob';
+use Image::ExifTool;
 
 my %patterns = (
   "%Y%m%d_%H%M%S" => qr/(\d{8}_\d{6})\.[^\/]+$/,
@@ -14,10 +15,14 @@ my %patterns = (
 );
 
 my %scanners = (
-  "3gp" => \&scan_3gp
+  "3gp" => \&scan_3gp,
+  "mp4" => \&copy_scanner,
+  "mov" => \&mov_scanner
 );
 
 my $WORKDIR = "/tmp/media_scanner";
+
+my $exifTool = new Image::ExifTool;
 
 my %opts = ();
 getopts("md:o",\%opts) || &usage;
@@ -45,7 +50,7 @@ sub wanted {
   #   remove the original file
   if (!-d $File::Find::name && /\.([^.])$/) {
     my $extension = lc($1);
-    $scanners{$extension}->($File::Find::name) if $scanners{$extension};
+    $scanners{$extension}->($File::Find::name,$extension) if $scanners{$extension};
   }
 }
 
@@ -56,6 +61,7 @@ sub create_workdir {
 
 sub scan_3gp {
   my $filename = shift;
+  my $extension = shift;
   my $t = &get_datetime($filename);
   my ($outpath,$outfile) = &get_outpath($t,"avi");
   if ($opts{o} || ! -e "$outpath/$outfile") {
@@ -63,6 +69,48 @@ sub scan_3gp {
     &convert_3gp($filename,"$WORKDIR/$outfile");
     &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
     system("rm \"$WORKDIR/$outfile\"");
+    if ($opts{m}) {
+      print "removing $filename\n";
+      system("rm \"$filename\""); 
+    }
+  } elsif ($opts{m}) {
+    print "removing $filename due to existing file: $outpath/$outfile\n";
+    system("rm \"$filename\""); 
+  } else {
+    print "skipping existing file: $outpath/$outfile\n";
+  }
+}
+
+sub mov_scanner {
+  my $filename = shift;
+  my $extension = shift;
+  my $t = &get_datetime($filename);
+  my ($outpath,$outfile) = &get_outpath($t,$extension);
+  if ($opts{o} || ! -e "$outpath/$outfile") {
+    print "new: $outpath/$outfile\n";
+    &rotate_video($filename,"$WORKDIR/$outfile");
+    &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
+    system("rm \"$WORKDIR/$outfile\"");
+    if ($opts{m}) {
+      print "removing $filename\n";
+      system("rm \"$filename\""); 
+    }
+  } elsif ($opts{m}) {
+    print "removing $filename due to existing file: $outpath/$outfile\n";
+    system("rm \"$filename\""); 
+  } else {
+    print "skipping existing file: $outpath/$outfile\n";
+  }
+}
+
+sub copy_scanner {
+  my $filename = shift;
+  my $extension = shift;
+  my $t = &get_datetime($filename);
+  my ($outpath,$outfile) = &get_outpath($t,$extension);
+  if ($opts{o} || ! -e "$outpath/$outfile") {
+    print "new: $outpath/$outfile\n";
+    &copy_file($t,$filename,$outpath,$outfile);
     if ($opts{m}) {
       print "removing $filename\n";
       system("rm \"$filename\""); 
@@ -97,6 +145,28 @@ sub convert_3gp {
   print "converting $original to $converted\n";
   $rc = system("ffmpeg -i \"$original\" -b 9000K -r 30 -ab 128K -f avi -vcodec libxvid -acodec libmp3lame \"$converted\"");
   die "unable to convert $original: $?\n" unless $rc == 0;
+}
+
+sub rotate_video {
+  my $original = shift;
+  my $rotated_path = shift;
+  my $rotated = shift;
+  
+  my $info = $exifTool->ImageInfo($file);
+
+  my $degrees = $exifTool->{Rotation};
+
+  if ($degrees) {
+    my $rotate = $degrees / 90;
+
+    my $current = $original;
+  
+    for my $x (1 .. $rotate) {
+      my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -c:a copy -same_quant \"$rotated_path/$rotated.$x\"");
+      die "unable to rotate \"$current\" video: $?" unless $rc == 0;
+      $current = "$rotated_path/$rotated.$x";
+    }
+  }
 }
 
 sub check_already_running {
