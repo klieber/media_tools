@@ -34,6 +34,15 @@ my $OUTPUT_ROOT = "/srv/media/video/family";
 &create_workdir;
 
 sub wanted {
+  # check if this is a file
+  # check if this is a supported file
+  # get the name of the new file
+  # if the new file doesn't exist or overwrite is true
+  #   perform any conversion that is neccessary
+  #   copy the converted file to the new file
+  #   remove the converted file
+  # if move is true
+  #   remove the original file
   if (!-d $File::Find::name && /\.([^.])$/) {
     my $extension = lc($1);
     $scanners{$extension}->($File::Find::name) if $scanners{$extension};
@@ -52,19 +61,34 @@ sub scan_3gp {
   if ($opts{o} || ! -e "$outpath/$outfile") {
     print "new: $outpath/$outfile\n";
     &convert_3gp($filename,"$WORKDIR/$outfile");
-    print "moving $WORKDIR/$outfile to $outpath/$outfile\n";
-    my $rc = system("mkdir -p $outpath");
-    die "unable to make output path $outpath: $?\n" unless $rc == 0;
-    $rc = system("mv \"$WORKDIR/$outfile\" $outpath/$outfile");
-    die "unable to move $WORKDIR/$outfile to $outpath/$outfile: $?\n" unless $rc == 0;
-    $rc = system("touch -d \"$cdate\" $outpath/$outfile");
-    die "unable to update creation time on $outpath/$outfile: $?\n" unless $rc == 0;
+    &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
+    system("rm \"$WORKDIR/$outfile\"");
+    if ($opts{m}) {
+      print "removing $filename\n";
+      system("rm \"$filename\""); 
+    }
   } elsif ($opts{m}) {
     print "removing $filename due to existing file: $outpath/$outfile\n";
     system("rm \"$filename\""); 
   } else {
     print "skipping existing file: $outpath/$outfile\n";
   }
+}
+
+sub copy_file {
+  my $t      = shift;
+  my $source = shift;
+  my $target_path = shift;
+  my $target = shift;
+  
+  my $cdate =  $t->cdate;
+  print "moving $source to $target_path/$target";
+  my $rc = system("mkdir -p \"$target_path\"");
+  die "unable to make output path $target_path: $?\n" unless $rc == 0;
+  $rc = system("cp -p \"$source\" \"$target_path/$target\"");
+  die "unable to move $source to $target_path/$target: $?\n" unless $rc == 0;
+  $rc = system("touch -d \"$cdate\" \"$target_path/$target\"");
+  die "unable to update creation time on $target_path/$target: $?\n" unless $rc == 0;
 }
 
 sub convert_3gp {
