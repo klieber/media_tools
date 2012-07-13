@@ -34,9 +34,15 @@ my $OUTPUT_ROOT = "/srv/media/video/family";
 
 &check_already_running;
 
-&check_directories;
+my @dirs = split /,/,$opts{d};
+&check_directories(@dirs);
 
 &create_workdir;
+
+for my $dir (@dirs) {
+  print "scanning for new video files in $dir...\n";
+  File::Find::find({wanted => \&wanted}, $dir);
+}
 
 sub wanted {
   # check if this is a file
@@ -48,7 +54,9 @@ sub wanted {
   #   remove the converted file
   # if move is true
   #   remove the original file
-  if (!-d $File::Find::name && /\.([^.])$/) {
+  print "$File::Find::name\n";
+  if (!-d $File::Find::name && /\.([^.]+)$/) {
+    print "file: $File::Find::name\n";
     my $extension = lc($1);
     $scanners{$extension}->($File::Find::name,$extension) if $scanners{$extension};
   }
@@ -88,9 +96,11 @@ sub mov_scanner {
   my ($outpath,$outfile) = &get_outpath($t,$extension);
   if ($opts{o} || ! -e "$outpath/$outfile") {
     print "new: $outpath/$outfile\n";
-    &rotate_video($filename,"$WORKDIR/$outfile");
-    &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
-    system("rm \"$WORKDIR/$outfile\"");
+    my $rotated = &rotate_video($filename,$WORKDIR,$outfile);
+    &copy_file($t,$rotated,$outpath,$outfile);
+    if ($rotated ne $filename) {
+      system("rm \"$rotated\"");
+    }
     if ($opts{m}) {
       print "removing $filename\n";
       system("rm \"$filename\""); 
@@ -130,7 +140,7 @@ sub copy_file {
   my $target = shift;
   
   my $cdate =  $t->cdate;
-  print "moving $source to $target_path/$target";
+  print "moving $source to $target_path/$target\n";
   my $rc = system("mkdir -p \"$target_path\"");
   die "unable to make output path $target_path: $?\n" unless $rc == 0;
   $rc = system("cp -p \"$source\" \"$target_path/$target\"");
@@ -152,21 +162,28 @@ sub rotate_video {
   my $rotated_path = shift;
   my $rotated = shift;
   
-  my $info = $exifTool->ImageInfo($file);
+  my $info = $exifTool->ImageInfo($original);
 
-  my $degrees = $exifTool->{Rotation};
+  my $degrees = $info->{Rotation};
 
+  my $result = $original;
+  print "checking for rotating $degrees\n";
   if ($degrees) {
+    print "$original needs rotated $degrees\n";
+
     my $rotate = $degrees / 90;
 
     my $current = $original;
   
     for my $x (1 .. $rotate) {
-      my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -c:a copy -same_quant \"$rotated_path/$rotated.$x\"");
+      print "rotating 90 degrees: $original\n";
+      my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -c:a copy -same_quant \"$rotated_path/$x-$rotated\"");
       die "unable to rotate \"$current\" video: $?" unless $rc == 0;
-      $current = "$rotated_path/$rotated.$x";
+      $current = "$rotated_path/$x-$rotated";
     }
+    $result = $current; 
   }
+  return $result;
 }
 
 sub check_already_running {
