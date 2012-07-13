@@ -45,18 +45,7 @@ for my $dir (@dirs) {
 }
 
 sub wanted {
-  # check if this is a file
-  # check if this is a supported file
-  # get the name of the new file
-  # if the new file doesn't exist or overwrite is true
-  #   perform any conversion that is neccessary
-  #   copy the converted file to the new file
-  #   remove the converted file
-  # if move is true
-  #   remove the original file
-  print "$File::Find::name\n";
   if (!-d $File::Find::name && /\.([^.]+)$/) {
-    print "file: $File::Find::name\n";
     my $extension = lc($1);
     $scanners{$extension}->($File::Find::name,$extension) if $scanners{$extension};
   }
@@ -167,10 +156,8 @@ sub rotate_video {
   my $degrees = $info->{Rotation};
 
   my $result = $original;
-  print "checking for rotating $degrees\n";
+  
   if ($degrees) {
-    print "$original needs rotated $degrees\n";
-
     my $rotate = $degrees / 90;
 
     my $current = $original;
