@@ -66,11 +66,13 @@ sub wanted {
         #  eval{ $t = Time::Piece->strptime($metadata{$key},"%Y:%m:%d%t%H:%M:%S"); };
         #  print STDERR "invalid date, $key=$metadata{$key}\n" if $@;
         #} else { 
-          eval{ $t = Time::Piece->strptime($metadata{$key},"%Y-%m-%dT%H:%M:%S%z"); };
+          my $time_string = $metadata{$key};
+          $time_string =~ s/[+-]\d\d\d\d$//;
+          eval{ $t = Time::Piece->strptime($time_string,"%Y-%m-%dT%H:%M:%S%z");};
           if (!$t) {
-            eval{ $t = Time::Piece->strptime($metadata{$key},"%Y-%m-%dT%H:%M:%S"); };     }
-          print STDERR "invalid date, $key=$metadata{$key}\n" if $@;
-        #}
+            eval{ $t = Time::Piece->strptime($time_string,"%Y-%m-%dT%H:%M:%S");};
+            print STDERR "invalid date, $key=$time_string\n" if $@;
+          }
         last if ($t);
       }
     }
