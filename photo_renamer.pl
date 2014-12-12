@@ -13,8 +13,11 @@ getopts("sbcmd:",\%opts) or &usage;
 my $count =  `ps -ef | grep -v grep | grep perl | grep -c $0`;
 die "$0 is already running\n" if $count > 1;
 
+my $disk_usage = `df -h | grep srv | tr -s ' ' | cut -f5 -d' ' | sed 's/%//g'`;
+die "$0 not enough freespace available: disk is $disk_usage% utilized\n" if $disk_usage > 90;
+
 my $home = glob("~");
-my $root_outpath = "/srv/media/photos";
+my $root_outpath = "/srv/media/photo";
 #my $root_outpath = "$home/Pictures/Family";
 
 my @DATE_FIELDS = (
