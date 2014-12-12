@@ -57,10 +57,14 @@ my @dirs = split /,/,$opts{d};
 
 &create_workdir;
 
+system("chown -R nobody:nogroup $VIDEO_OUTPUT_ROOT");
+system("chown -R nobody:nogroup $PHOTO_OUTPUT_ROOT");
+
 for my $dir (@dirs) {
   print "scanning for new files in $dir...\n";
   File::Find::find({wanted => \&wanted}, $dir);
 }
+
 
 sub wanted {
   if (!-d $File::Find::name && /\.([^.]+)$/) {
@@ -149,9 +153,12 @@ sub copy_file {
 
   my $cdate =  $t->cdate;
   print "moving $source to $target_path/$target\n";
-  my $rc = system("mkdir -p \"$target_path\"");
-  die "unable to make output path $target_path: $?\n" unless $rc == 0;
-  $rc = system("cp -p \"$source\" \"$target_path/$target\"");
+  #my $rc = system("mkdir -p \"$target_path\"");
+  #die "unable to make output path $target_path: $?\n" unless $rc == 0;
+  &make_path($target_path);
+  my $rc = system("cp --preserve=timestamps \"$source\" \"$target_path/$target\"");
+  #system("chmod a-x \"$target_path/$target\"");
+  system("chown nobody:nogroup \"$target_path/$target\"");
   die "unable to move $source to $target_path/$target: $?\n" unless $rc == 0;
   $rc = system("touch -d \"$cdate\" \"$target_path/$target\"");
   die "unable to update creation time on $target_path/$target: $?\n" unless $rc == 0;
@@ -257,28 +264,45 @@ sub photo_scanner {
         system("mkdir -p /tmp/photo_duplicates");
         system("mv \"$filename\" /tmp/photo_duplicates");
       } elsif (!$has_duplicate) {
-        system("mkdir -p $outpath");
+        #system("mkdir -p $outpath");
+        &make_path($outpath);
         if ($opts{c}) {
           print "copying $filename to $outpath/$outfile\n";
-          system("cp -p \"$filename\" \"$outpath/$outfile\"");
-          system("chmod a-x \"$outpath/$outfile\"");
+          system("cp --preserve=timestamps \"$filename\" \"$outpath/$outfile\"");
+          #system("chmod a-x \"$outpath/$outfile\"");
+          system("chown nobody:nogroup \"$outpath/$outfile\"");
         } elsif ($opts{m}) {
           print "moving $filename to $outpath/$outfile\n";
-          system("mv \"$filename\" \"$outpath/$outfile\"");
-          system("chmod a-x \"$outpath/$outfile\"");
+          system("cp --preserve=timestamps \"$filename\" \"$outpath/$outfile\"");
+          system("rm \"$filename\"");
+          #system("chmod a-x \"$outpath/$outfile\"");
+          system("chown nobody:nogroup \"$outpath/$outfile\"");
         }
       }
     }
   } elsif ($opts{b}) {
     my $outpath = "$PHOTO_OUTPUT_ROOT/invalid";
-    system("mkdir -p $outpath");
-    system("cp -p \"$filename\" \"$outpath/$_\"");
-    system("chmod a-x \"$outpath/$_\"");
+    #system("mkdir -p $outpath");
+    &make_path($outpath);
+    system("cp --preserve=timestamps \"$filename\" \"$outpath/$_\"");
+    #system("chmod a-x \"$outpath/$_\"");
+    system("chown nobody:nogroup \"$outpath/$_\"");
     print "unable to convert file name: $filename\n";
   }
   else {
     print "unable to convert file name: $filename\n";
   }
+}
+
+sub make_path {
+  my $full_path = shift;
+  my @pieces = split /\//, $full_path;
+  shift @pieces;
+  my $path = "";
+  foreach (@pieces) {
+    $path = "$path/$_"; 
+    system("mkdir $path") unless -d $path;
+  } 
 }
 
 sub check_already_running {
@@ -337,6 +361,19 @@ sub get_outpath {
   my $outfile = $t->strftime("%Y%m%d_%H%M%S");
   $outfile .= ".$ext" if $ext;
   return ($outpath,$outfile);
+}
+
+
+sub is_duplicate {
+  my $file1 = shift;
+  my $file2 = shift;
+  open(FILE1,"< $file1") or die "unable to open $file1\n";
+  open(FILE2,"< $file2") or die "unable to open $file2\n";
+  binmode(FILE1);
+  binmode(FILE2);
+  my $cs1 = md5_hex(<FILE1>);
+  my $cs2 = md5_hex(<FILE2>);
+  return $cs1 eq $cs2; 
 }
 
 sub usage {
