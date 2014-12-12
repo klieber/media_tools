@@ -16,7 +16,8 @@ my %patterns = (
 
 my %scanners = (
   "3gp" => \&scan_3gp,
-  "mp4" => \&copy_scanner,
+  #"mp4" => \&copy_scanner,
+  "mp4" => \&mov_scanner,
   "mov" => \&mov_scanner
 );
 
@@ -33,6 +34,9 @@ my $HOME_DIR  = glob("~");
 my $OUTPUT_ROOT = "/srv/media/video/family";
 
 &check_already_running;
+
+my $disk_usage = `df -h | grep srv | tr -s ' ' | cut -f5 -d' ' | sed 's/%//g'`;
+die "$0 not enough freespace available: disk is $disk_usage% utilized\n" if $disk_usage > 90;
 
 my @dirs = split /,/,$opts{d};
 &check_directories(@dirs);
@@ -63,6 +67,7 @@ sub scan_3gp {
   my ($outpath,$outfile) = &get_outpath($t,"avi");
   if ($opts{o} || ! -e "$outpath/$outfile") {
     print "new: $outpath/$outfile\n";
+    system("rm \"$WORKDIR/$outfile\"");
     &convert_3gp($filename,"$WORKDIR/$outfile");
     &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
     system("rm \"$WORKDIR/$outfile\"");
@@ -164,7 +169,7 @@ sub rotate_video {
   
     for my $x (1 .. $rotate) {
       print "rotating 90 degrees: $original\n";
-      my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -c:a copy -same_quant \"$rotated_path/$x-$rotated\"");
+      my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -crf 20 -preset slow -c:a copy \"$rotated_path/$x-$rotated\"");
       die "unable to rotate \"$current\" video: $?" unless $rc == 0;
       $current = "$rotated_path/$x-$rotated";
     }
@@ -202,18 +207,22 @@ sub check_for_changes {
 sub get_datetime {
   my $file = shift;
   my $t;
-  for my $key (keys %patterns) {
-    if ($file =~ $patterns{$key}) {
-      eval {
-        $t = Time::Piece->strptime($1,$key);
-      };
-      last unless $@;
-    }
-    print "could not match date on $key: $file\n";
-  }
-  if (!$t) {
-    print "all pattern matches failed, using timestamp: $file\n";
+  eval {
     $t = localtime(stat($file)->mtime);
+  };
+  if (!$t or $@) {
+    print "could not determine timestamp from modification time\n";
+    print "attempting to match based on filename\n";
+    for my $key (keys %patterns) {
+      if ($file =~ $patterns{$key}) {
+        eval {
+          $t = Time::Piece->strptime($1,$key);
+          $t += localtime->tzoffset;
+        };
+        last unless $@;
+      }
+      print "could not match date on $key: $file\n";
+    }
   }
   return $t;
 }

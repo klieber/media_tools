@@ -1,0 +1,3 @@
+# cpanfile
+
+requires 'Image::ExifTool'
