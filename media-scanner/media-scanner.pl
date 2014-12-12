@@ -7,6 +7,7 @@ use File::Spec;
 use Getopt::Std;
 use File::Glob ':glob';
 use Image::ExifTool;
+use Digest::MD5 qw(md5_hex);
 
 my %patterns = (
   "%Y%m%d_%H%M%S" => qr/(\d{8}_\d{6})\.[^\/]+$/,
@@ -18,7 +19,19 @@ my %scanners = (
   "3gp" => \&scan_3gp,
   #"mp4" => \&copy_scanner,
   "mp4" => \&mov_scanner,
-  "mov" => \&mov_scanner
+  "mov" => \&mov_scanner,
+  "jpg" => \&photo_scanner,
+  "jpeg" => \&photo_scanner,
+  "png" => \&photo_scanner
+);
+
+my @DATE_FIELDS = (
+  "exif:DateTimeOriginal",
+  "exif:DateTimeDigitized",
+  "exif:DateTime",
+  "MicrosoftPhoto:DateAcquired",
+  "date:modify",
+  "date:create"
 );
 
 my $WORKDIR = "/tmp/media_scanner";
@@ -26,12 +39,13 @@ my $WORKDIR = "/tmp/media_scanner";
 my $exifTool = new Image::ExifTool;
 
 my %opts = ();
-getopts("md:o",\%opts) || &usage;
+getopts("sbcmd:o",\%opts) || &usage;
 &usage unless $opts{d};
 
 my $HOME_DIR  = glob("~");
 
-my $OUTPUT_ROOT = "/srv/media/video/family";
+my $VIDEO_OUTPUT_ROOT = "/srv/media/video/family";
+my $PHOTO_OUTPUT_ROOT = "/srv/media/photo";
 
 &check_already_running;
 
@@ -44,7 +58,7 @@ my @dirs = split /,/,$opts{d};
 &create_workdir;
 
 for my $dir (@dirs) {
-  print "scanning for new video files in $dir...\n";
+  print "scanning for new files in $dir...\n";
   File::Find::find({wanted => \&wanted}, $dir);
 }
 
@@ -73,11 +87,11 @@ sub scan_3gp {
     system("rm \"$WORKDIR/$outfile\"");
     if ($opts{m}) {
       print "removing $filename\n";
-      system("rm \"$filename\""); 
+      system("rm \"$filename\"");
     }
   } elsif ($opts{m}) {
     print "removing $filename due to existing file: $outpath/$outfile\n";
-    system("rm \"$filename\""); 
+    system("rm \"$filename\"");
   } else {
     print "skipping existing file: $outpath/$outfile\n";
   }
@@ -97,11 +111,11 @@ sub mov_scanner {
     }
     if ($opts{m}) {
       print "removing $filename\n";
-      system("rm \"$filename\""); 
+      system("rm \"$filename\"");
     }
   } elsif ($opts{m}) {
     print "removing $filename due to existing file: $outpath/$outfile\n";
-    system("rm \"$filename\""); 
+    system("rm \"$filename\"");
   } else {
     print "skipping existing file: $outpath/$outfile\n";
   }
@@ -117,11 +131,11 @@ sub copy_scanner {
     &copy_file($t,$filename,$outpath,$outfile);
     if ($opts{m}) {
       print "removing $filename\n";
-      system("rm \"$filename\""); 
+      system("rm \"$filename\"");
     }
   } elsif ($opts{m}) {
     print "removing $filename due to existing file: $outpath/$outfile\n";
-    system("rm \"$filename\""); 
+    system("rm \"$filename\"");
   } else {
     print "skipping existing file: $outpath/$outfile\n";
   }
@@ -132,7 +146,7 @@ sub copy_file {
   my $source = shift;
   my $target_path = shift;
   my $target = shift;
-  
+
   my $cdate =  $t->cdate;
   print "moving $source to $target_path/$target\n";
   my $rc = system("mkdir -p \"$target_path\"");
@@ -155,27 +169,116 @@ sub rotate_video {
   my $original = shift;
   my $rotated_path = shift;
   my $rotated = shift;
-  
+
   my $info = $exifTool->ImageInfo($original);
 
   my $degrees = $info->{Rotation};
 
   my $result = $original;
-  
+
   if ($degrees) {
     my $rotate = $degrees / 90;
 
     my $current = $original;
-  
+
     for my $x (1 .. $rotate) {
       print "rotating 90 degrees: $original\n";
       my $rc = system("avconv -i \"$current\" -vf \"transpose=1\" -crf 20 -preset slow -c:a copy \"$rotated_path/$x-$rotated\"");
       die "unable to rotate \"$current\" video: $?" unless $rc == 0;
       $current = "$rotated_path/$x-$rotated";
     }
-    $result = $current; 
+    $result = $current;
   }
   return $result;
+}
+
+sub photo_scanner {
+  my $filename = shift;
+  my $ext = shift;
+  $ext =~ s/jpeg/jpg/i;
+  $ext = lc $ext;
+  print "scanning file $filename\n";
+  chomp(my @lines = `/usr/bin/identify -verbose \"$filename\" | grep -i date`);
+  my %metadata = ();
+  for my $line (@lines) {
+    if ($line =~ m/^\s*([^\s]*):\s+(.*)$/) {
+      my $key = $1;
+      my $val = $2;
+      $val =~ s/Z$//;
+      $val =~ s/-(\d\d):(\d\d)$/-$1$2/;
+      $val =~ s/\+(\d\d):(\d\d)$/+$1$2/;
+      $val =~ s/^(\d\d\d\d):(\d\d):(\d\d)\s+/$1-$2-$3T/;
+      $metadata{$key} = $val;
+    }
+  }
+  my $t;
+  for my $key (@DATE_FIELDS) {
+    print "$key = $metadata{$key}\n";
+    if ($metadata{$key}) {
+        my $time_string = $metadata{$key};
+        $time_string =~ s/[+-]\d\d\d\d$//;
+        eval{ $t = Time::Piece->strptime($time_string,"%Y-%m-%dT%H:%M:%S%z");};
+        if (!$t) {
+          eval{ $t = Time::Piece->strptime($time_string,"%Y-%m-%dT%H:%M:%S");};
+          print STDERR "invalid date, $key=$time_string\n" if $@;
+        }
+      last if ($t);
+    }
+  }
+  if ($t) {
+    my $outpath = "$PHOTO_OUTPUT_ROOT/".$t->strftime("%Y/%m");
+    my $outfile = $t->strftime("%Y%m%d_%H%M%S.$ext");
+    print "$outpath/$outfile\n";
+    if (-e "$outpath/$outfile" && $opts{s}) {
+      print "file already exists: $outpath/$outfile\n";
+    } else {
+      my $has_duplicate = 0;
+      if (-e "$outpath/$outfile") {
+        if (&is_duplicate($filename,"$outpath/$outfile")) {
+          print "duplicate file already exists: $outpath/$outfile\n";
+          $has_duplicate = 1;
+        } else {
+          print "file already exists: $outpath/$outfile\n";
+          my $count = 0;
+          $outfile =~ s/\.$ext/_$count.$ext/;
+          while (-e "$outpath/$outfile" and !$has_duplicate) {
+            if (&is_duplicate($filename,"$outpath/$outfile")) {
+              print "duplicate file already exists: $outpath/$outfile\n";
+              $has_duplicate = 1;
+            } else {
+              print "file already exists: $outpath/$outfile\n";
+              $count++;
+              $outfile =~ s/_\d+\.$ext/_$count.$ext/;
+            }
+          }
+        }
+      }
+      if ($has_duplicate && $opts{m}) {
+        system("mkdir -p /tmp/photo_duplicates");
+        system("mv \"$filename\" /tmp/photo_duplicates");
+      } elsif (!$has_duplicate) {
+        system("mkdir -p $outpath");
+        if ($opts{c}) {
+          print "copying $filename to $outpath/$outfile\n";
+          system("cp -p \"$filename\" \"$outpath/$outfile\"");
+          system("chmod a-x \"$outpath/$outfile\"");
+        } elsif ($opts{m}) {
+          print "moving $filename to $outpath/$outfile\n";
+          system("mv \"$filename\" \"$outpath/$outfile\"");
+          system("chmod a-x \"$outpath/$outfile\"");
+        }
+      }
+    }
+  } elsif ($opts{b}) {
+    my $outpath = "$PHOTO_OUTPUT_ROOT/invalid";
+    system("mkdir -p $outpath");
+    system("cp -p \"$filename\" \"$outpath/$_\"");
+    system("chmod a-x \"$outpath/$_\"");
+    print "unable to convert file name: $filename\n";
+  }
+  else {
+    print "unable to convert file name: $filename\n";
+  }
 }
 
 sub check_already_running {
@@ -230,7 +333,7 @@ sub get_datetime {
 sub get_outpath {
   my $t   = shift;
   my $ext = shift;
-  my $outpath = "$OUTPUT_ROOT/".$t->strftime("%Y/%m");
+  my $outpath = "$VIDEO_OUTPUT_ROOT/".$t->strftime("%Y/%m");
   my $outfile = $t->strftime("%Y%m%d_%H%M%S");
   $outfile .= ".$ext" if $ext;
   return ($outpath,$outfile);
@@ -240,3 +343,4 @@ sub usage {
   print "Usage: $0 -d <dirs>\n";
   exit -1;
 }
+
