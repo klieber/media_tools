@@ -53,19 +53,25 @@ my $PHOTO_OUTPUT_ROOT = "/srv/media/photo";
 my $disk_usage = `df -h | grep srv | tr -s ' ' | cut -f5 -d' ' | sed 's/%//g'`;
 die "$0 not enough freespace available: disk is $disk_usage% utilized\n" if $disk_usage > 90;
 
-my @dirs = split /,/,$opts{d};
 &check_directories(@dirs);
 
 &create_workdir;
 
-system("chown -R nobody:nogroup $VIDEO_OUTPUT_ROOT");
-system("chown -R nobody:nogroup $PHOTO_OUTPUT_ROOT");
+while(1) {
+  my @dirs = split /,/,$opts{d};
+  my $no_changes = &check_directories_for_changes(@dirs);
+  if ($no_changes) {
 
-for my $dir (@dirs) {
-  print "scanning for new files in $dir...\n";
-  File::Find::find({wanted => \&wanted}, $dir);
+    # system("chown -R nobody:nogroup $VIDEO_OUTPUT_ROOT");
+    # system("chown -R nobody:nogroup $PHOTO_OUTPUT_ROOT");
+
+    for my $dir (@dirs) {
+      print "scanning for new files in $dir...\n";
+      File::Find::find({wanted => \&wanted}, $dir);
+    }
+  }  
+  sleep 60;
 }
-
 
 sub wanted {
   if (!-d $File::Find::name && /\.([^.]+)$/) {
@@ -314,8 +320,16 @@ sub check_already_running {
 sub check_directories {
   for my $dir (@_) {
     &usage unless -d $dir;
-    &check_for_changes($dir);
   }
+}
+
+sub check_directories_for_changes {
+  my $no_changes = 1;
+  for my $dir (@_) {
+    $no_changes = &check_for_changes($dir);
+    last if !$no_changes;
+  }
+  return $no_changes;
 }
 
 sub check_for_changes {
@@ -327,9 +341,11 @@ sub check_for_changes {
   @files = bsd_glob("$directory/*");
   my $second = scalar(@files);
   if ($first < $second) {
-    print "$0: files are being added to $directory, try again later\n";
-    exit -1;
+    print "files are being added to $directory, waiting...\n";
+    #exit -1;
+    return 0;
   }
+  return 1;
 }
 
 sub get_datetime {
