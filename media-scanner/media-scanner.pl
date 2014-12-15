@@ -22,7 +22,8 @@ my %scanners = (
   "mov" => \&mov_scanner,
   "jpg" => \&photo_scanner,
   "jpeg" => \&photo_scanner,
-  "png" => \&photo_scanner
+  "png" => \&photo_scanner,
+  "avi" => \&copy_scanner
 );
 
 my @DATE_FIELDS = (
