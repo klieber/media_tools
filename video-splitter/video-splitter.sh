@@ -19,9 +19,15 @@ if [ ! -e $file ]; then
   exit 2
 fi
 
+level="0.8"
+if [ "$2" ]; then
+  level=$2
+fi
+
 if [ ! -e $probe ]; then
   echo Creating probe file: $probe
-  ffprobe -show_frames -of compact=p=0 -f lavfi "movie=$file,select=gt(scene\,.4)" > $probe
+  ffprobe -show_frames -of compact=p=0 -f lavfi "movie=$file,select=gt(scene\,$level)" > $probe
+  [ $? = 0 ] || ( echo "Unable to create probe file. Aborting." && exit 3 )
 fi
 
 start=0
@@ -30,8 +36,12 @@ clip=1
 mkdir -p $filepath/$name
 
 for end in $(cat $probe | cut -f4 -d'|' | cut -f2 -d=); do
-  echo creating clip $clip at $filepath/$name/${name}_${clip}.$ext
-  ffmpeg -i $file -ss $start -to $end -async 1 $name/${name}_${clip}.$ext
+  clip_string=$(printf "%.4d\n" $clip)
+  echo Creating clip $clip at $filepath/$name/${name}_${clip_string}.$ext
+  ffmpeg -i $file -ss $start -to $end -async 1 $name/${name}_${clip_string}.$ext
+  [ $? = 0 ] || echo "Failure creating clip $clip."
   start=$end
   ((clip++))
 done
+clip_string=$(printf "%.4d\n" $clip)
+ffmpeg -i $file -ss $start -async 1 $name/${name}_${clip_string}.$ext
