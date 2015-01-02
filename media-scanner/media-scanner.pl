@@ -20,6 +20,7 @@ my %scanners = (
   #"mp4" => \&copy_scanner,
   "mp4" => \&mov_scanner,
   "mov" => \&mov_scanner,
+  "mod" => \&mod_scanner,
   "jpg" => \&photo_scanner,
   "jpeg" => \&photo_scanner,
   "png" => \&photo_scanner,
@@ -45,8 +46,8 @@ getopts("sbcmd:o",\%opts) || &usage;
 
 my $HOME_DIR  = glob("~");
 
-my $VIDEO_OUTPUT_ROOT = "/srv/media/video/family";
-my $PHOTO_OUTPUT_ROOT = "/srv/media/photo";
+my $VIDEO_OUTPUT_ROOT = "/video";
+my $PHOTO_OUTPUT_ROOT = "/photo";
 
 &check_already_running;
 
@@ -61,10 +62,6 @@ while(1) {
   my @dirs = split /,/,$opts{d};
   my $no_changes = &check_directories_for_changes(@dirs);
   if ($no_changes) {
-
-    # system("chown -R nobody:nogroup $VIDEO_OUTPUT_ROOT");
-    # system("chown -R nobody:nogroup $PHOTO_OUTPUT_ROOT");
-
     for my $dir (@dirs) {
       print "scanning for new files in $dir...\n";
       File::Find::find({wanted => \&wanted}, $dir);
@@ -132,6 +129,28 @@ sub mov_scanner {
   }
 }
 
+sub mod_scanner {
+  my $filename = shift;
+  my $extension = shift;
+  my $t = &get_datetime($filename);
+  my ($outpath,$outfile) = &get_outpath($t,"mp4");
+  if ($opts{o} || ! -e "$outpath/$outfile") {
+    print "new: $outpath/$outfile\n";
+    &convert_mod($filename,"$WORKDIR/$outfile");
+    &copy_file($t,"$WORKDIR/$outfile",$outpath,$outfile);
+    system("rm \"$WORKDIR/$outfile\"");
+    if ($opts{m}) {
+      print "removing $filename\n";
+      system("rm \"$filename\"");
+    }
+  } elsif ($opts{m}) {
+    print "removing $filename due to existing file: $outpath/$outfile\n";
+    system("rm \"$filename\"");
+  } else {
+    print "skipping existing file: $outpath/$outfile\n";
+  }
+}
+
 sub copy_scanner {
   my $filename = shift;
   my $extension = shift;
@@ -160,11 +179,8 @@ sub copy_file {
 
   my $cdate =  $t->cdate;
   print "moving $source to $target_path/$target\n";
-  #my $rc = system("mkdir -p \"$target_path\"");
-  #die "unable to make output path $target_path: $?\n" unless $rc == 0;
   &make_path($target_path);
   my $rc = system("cp --preserve=timestamps \"$source\" \"$target_path/$target\"");
-  #system("chmod a-x \"$target_path/$target\"");
   system("chown nobody:nogroup \"$target_path/$target\"");
   die "unable to move $source to $target_path/$target: $?\n" unless $rc == 0;
   $rc = system("touch -d \"$cdate\" \"$target_path/$target\"");
@@ -176,6 +192,15 @@ sub convert_3gp {
   my $converted = shift;
   print "converting $original to $converted\n";
   $rc = system("ffmpeg -i \"$original\" -b 9000K -r 30 -ab 128K -f avi -vcodec libxvid -acodec libmp3lame \"$converted\"");
+  die "unable to convert $original: $?\n" unless $rc == 0;
+}
+
+sub convert_mod {
+  my $original = shift;
+  my $converted = shift;
+
+  print "converting $original to $converted\n";
+  $rc = system("HandBrakeCLI -i \"$original\" -o \"$converted\" --preset=\"Normal\"");
   die "unable to convert $original: $?\n" unless $rc == 0;
 }
 
@@ -271,28 +296,23 @@ sub photo_scanner {
         system("mkdir -p /tmp/photo_duplicates");
         system("mv \"$filename\" /tmp/photo_duplicates");
       } elsif (!$has_duplicate) {
-        #system("mkdir -p $outpath");
         &make_path($outpath);
         if ($opts{c}) {
           print "copying $filename to $outpath/$outfile\n";
           system("cp --preserve=timestamps \"$filename\" \"$outpath/$outfile\"");
-          #system("chmod a-x \"$outpath/$outfile\"");
           system("chown nobody:nogroup \"$outpath/$outfile\"");
         } elsif ($opts{m}) {
           print "moving $filename to $outpath/$outfile\n";
           system("cp --preserve=timestamps \"$filename\" \"$outpath/$outfile\"");
           system("rm \"$filename\"");
-          #system("chmod a-x \"$outpath/$outfile\"");
           system("chown nobody:nogroup \"$outpath/$outfile\"");
         }
       }
     }
   } elsif ($opts{b}) {
     my $outpath = "$PHOTO_OUTPUT_ROOT/invalid";
-    #system("mkdir -p $outpath");
     &make_path($outpath);
     system("cp --preserve=timestamps \"$filename\" \"$outpath/$_\"");
-    #system("chmod a-x \"$outpath/$_\"");
     system("chown nobody:nogroup \"$outpath/$_\"");
     print "unable to convert file name: $filename\n";
   }

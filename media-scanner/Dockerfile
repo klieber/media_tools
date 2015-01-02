@@ -1,14 +1,12 @@
-FROM perl:5.18.2
+FROM klieber/docker-perl
 
-RUN apt-get update
-RUN apt-get install -y libimage-exiftool-perl libav-tools imagemagick
+MAINTAINER Kyle Lieber <klieberuni@gmail.com>
 
-RUN curl -L http://cpanmin.us | perl - App::cpanminus
-RUN cpanm Carton
+RUN apt-get -qq update
+RUN apt-get install -y libimage-exiftool-perl libav-tools imagemagick handbrake-cli
+RUN apt-get clean
 
-COPY . /usr/src/media-tools
-WORKDIR /usr/src/media-tools
+COPY . /app
+RUN carton install
 
-RUN carton install --deployment
-
-ENTRYPOINT ["carton","exec","/usr/src/media-tools/media-scanner.pl"]
+ENTRYPOINT ["carton","exec","/app/media-scanner.pl"]
