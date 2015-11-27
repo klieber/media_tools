@@ -17,14 +17,14 @@ my %patterns = (
 
 my %scanners = (
   "3gp" => \&scan_3gp,
-  #"mp4" => \&copy_scanner,
   "mp4" => \&mov_scanner,
   "mov" => \&mov_scanner,
   "mod" => \&mod_scanner,
   "jpg" => \&photo_scanner,
   "jpeg" => \&photo_scanner,
   "png" => \&photo_scanner,
-  "avi" => \&copy_scanner
+  "avi" => \&copy_scanner,
+  "mpg" => \&copy_scanner
 );
 
 my @DATE_FIELDS = (
